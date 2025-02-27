@@ -1,0 +1,422 @@
+import pygame
+import random
+import time
+import sys
+
+# Initialize pygame
+pygame.init()
+
+# Constants
+WIDTH = 800
+HEIGHT = 600
+FPS = 60
+
+# Colors
+WHITE = (255, 255, 255)
+BLACK = (0, 0, 0)
+RED = (255, 0, 0)
+GREEN = (0, 255, 0)
+BLUE = (0, 0, 255)
+YELLOW = (255, 255, 0)
+GRAY = (100, 100, 100)
+
+# Setup the display
+screen = pygame.display.set_mode((WIDTH, HEIGHT))
+pygame.display.set_caption("Python Racer")
+clock = pygame.time.Clock()
+
+# Load images or create placeholders
+def create_car(color, width, height):
+    car = pygame.Surface((width, height), pygame.SRCALPHA)
+    pygame.draw.rect(car, color, (0, 0, width, height), border_radius=5)
+    pygame.draw.rect(car, BLACK, (0, 0, width, height), 2, border_radius=5)
+    pygame.draw.rect(car, BLACK, (5, 5, width - 10, height - 10), 1)
+    pygame.draw.rect(car, BLACK, (0, height/4, width, height/8), 0)
+    pygame.draw.rect(car, BLACK, (0, height*5/8, width, height/8), 0)
+    return car
+
+class Player(pygame.sprite.Sprite):
+    def __init__(self):
+        pygame.sprite.Sprite.__init__(self)
+        self.image = create_car(BLUE, 40, 70)
+        self.rect = self.image.get_rect()
+        self.rect.centerx = WIDTH / 2
+        self.rect.bottom = HEIGHT - 20
+        self.speedx = 0
+        self.speedy = 0
+        self.acceleration = 0.5
+        self.max_speed = 10
+        self.health = 100
+        self.score = 0
+        
+    def update(self):
+        # Apply friction
+        if self.speedx > 0:
+            self.speedx -= 0.1
+        elif self.speedx < 0:
+            self.speedx += 0.1
+            
+        if self.speedy > 0:
+            self.speedy -= 0.1
+        elif self.speedy < 0:
+            self.speedy += 0.1
+            
+        # Apply small threshold to prevent tiny movements
+        if abs(self.speedx) < 0.2:
+            self.speedx = 0
+        if abs(self.speedy) < 0.2:
+            self.speedy = 0
+            
+        # Update position
+        self.rect.x += self.speedx
+        self.rect.y += self.speedy
+        
+        # Keep player on the screen
+        if self.rect.right > WIDTH - 10:
+            self.rect.right = WIDTH - 10
+            self.speedx = -self.speedx * 0.5  # Bounce off wall
+        if self.rect.left < 10:
+            self.rect.left = 10
+            self.speedx = -self.speedx * 0.5  # Bounce off wall
+        if self.rect.bottom > HEIGHT - 10:
+            self.rect.bottom = HEIGHT - 10
+            self.speedy = -self.speedy * 0.5  # Bounce off wall
+        if self.rect.top < 10:
+            self.rect.top = 10
+            self.speedy = -self.speedy * 0.5  # Bounce off wall
+            
+    def accelerate(self, direction):
+        if direction == "left":
+            self.speedx -= self.acceleration
+            if self.speedx < -self.max_speed:
+                self.speedx = -self.max_speed
+        if direction == "right":
+            self.speedx += self.acceleration
+            if self.speedx > self.max_speed:
+                self.speedx = self.max_speed
+        if direction == "up":
+            self.speedy -= self.acceleration
+            if self.speedy < -self.max_speed:
+                self.speedy = -self.max_speed
+        if direction == "down":
+            self.speedy += self.acceleration
+            if self.speedy > self.max_speed:
+                self.speedy = self.max_speed
+                
+    def brake(self):
+        self.speedx *= 0.8
+        self.speedy *= 0.8
+
+class Obstacle(pygame.sprite.Sprite):
+    def __init__(self, speed):
+        pygame.sprite.Sprite.__init__(self)
+        self.speed = speed
+        self.type = random.choice(["car", "puddle", "rock"])
+        
+        # Different obstacles
+        if self.type == "car":
+            self.image = create_car(RED, 40, 70)
+            self.score_value = 5
+            self.damage = 25
+        elif self.type == "puddle":
+            self.image = pygame.Surface((60, 30), pygame.SRCALPHA)
+            pygame.draw.ellipse(self.image, (0, 0, 200, 128), (0, 0, 60, 30))
+            self.score_value = 1
+            self.damage = 5
+        else:  # rock
+            self.image = pygame.Surface((30, 30), pygame.SRCALPHA)
+            pygame.draw.circle(self.image, GRAY, (15, 15), 15)
+            self.score_value = 3
+            self.damage = 15
+            
+        self.rect = self.image.get_rect()
+        self.rect.x = random.randrange(20, WIDTH - 40)
+        self.rect.y = random.randrange(-100, -40)
+        
+    def update(self):
+        self.rect.y += self.speed
+        if self.rect.top > HEIGHT:
+            self.rect.x = random.randrange(20, WIDTH - 40)
+            self.rect.y = random.randrange(-100, -40)
+
+class PowerUp(pygame.sprite.Sprite):
+    def __init__(self, speed):
+        pygame.sprite.Sprite.__init__(self)
+        self.speed = speed
+        self.type = random.choice(["health", "speed", "shield"])
+        
+        self.image = pygame.Surface((25, 25), pygame.SRCALPHA)
+        if self.type == "health":
+            pygame.draw.circle(self.image, GREEN, (12, 12), 12)
+            pygame.draw.line(self.image, WHITE, (12, 6), (12, 18), 3)
+            pygame.draw.line(self.image, WHITE, (6, 12), (18, 12), 3)
+        elif self.type == "speed":
+            pygame.draw.circle(self.image, YELLOW, (12, 12), 12)
+            points = [(5, 12), (15, 6), (15, 18)]
+            pygame.draw.polygon(self.image, WHITE, points)
+        else:  # shield
+            pygame.draw.circle(self.image, BLUE, (12, 12), 12)
+            pygame.draw.circle(self.image, WHITE, (12, 12), 8, 2)
+            
+        self.rect = self.image.get_rect()
+        self.rect.x = random.randrange(20, WIDTH - 40)
+        self.rect.y = random.randrange(-300, -100)
+        
+    def update(self):
+        self.rect.y += self.speed
+        if self.rect.top > HEIGHT:
+            self.rect.x = random.randrange(20, WIDTH - 40)
+            self.rect.y = random.randrange(-300, -100)
+
+class RoadMarker(pygame.sprite.Sprite):
+    def __init__(self, x, y, speed):
+        pygame.sprite.Sprite.__init__(self)
+        self.image = pygame.Surface((10, 30))
+        self.image.fill(WHITE)
+        self.rect = self.image.get_rect()
+        self.rect.x = x
+        self.rect.y = y
+        self.speed = speed
+        
+    def update(self):
+        self.rect.y += self.speed
+        if self.rect.top > HEIGHT:
+            self.rect.y = -30
+
+def show_game_over(score):
+    screen.fill(BLACK)
+    font = pygame.font.Font(None, 74)
+    text = font.render("GAME OVER", True, RED)
+    text_rect = text.get_rect(center=(WIDTH/2, HEIGHT/2 - 50))
+    screen.blit(text, text_rect)
+    
+    font = pygame.font.Font(None, 48)
+    score_text = font.render(f"Final Score: {score}", True, WHITE)
+    score_rect = score_text.get_rect(center=(WIDTH/2, HEIGHT/2 + 30))
+    screen.blit(score_text, score_rect)
+    
+    font = pygame.font.Font(None, 36)
+    restart_text = font.render("Press R to restart or Q to quit", True, WHITE)
+    restart_rect = restart_text.get_rect(center=(WIDTH/2, HEIGHT/2 + 100))
+    screen.blit(restart_text, restart_rect)
+    
+    pygame.display.flip()
+    
+    waiting = True
+    while waiting:
+        for event in pygame.event.get():
+            if event.type == pygame.QUIT:
+                pygame.quit()
+                sys.exit()
+            if event.type == pygame.KEYDOWN:
+                if event.key == pygame.K_r:
+                    waiting = False
+                if event.key == pygame.K_q:
+                    pygame.quit()
+                    sys.exit()
+
+def show_start_screen():
+    screen.fill(BLACK)
+    font = pygame.font.Font(None, 74)
+    text = font.render("PYTHON RACER", True, BLUE)
+    text_rect = text.get_rect(center=(WIDTH/2, HEIGHT/2 - 50))
+    screen.blit(text, text_rect)
+    
+    font = pygame.font.Font(None, 36)
+    instructions = [
+        "Arrow Keys to Move",
+        "Space to Brake",
+        "Avoid Obstacles",
+        "Collect Power-ups",
+        "",
+        "Press any key to start"
+    ]
+    
+    for i, line in enumerate(instructions):
+        text = font.render(line, True, WHITE)
+        text_rect = text.get_rect(center=(WIDTH/2, HEIGHT/2 + 30 + i * 30))
+        screen.blit(text, text_rect)
+    
+    pygame.display.flip()
+    
+    waiting = True
+    while waiting:
+        for event in pygame.event.get():
+            if event.type == pygame.QUIT:
+                pygame.quit()
+                sys.exit()
+            if event.type == pygame.KEYDOWN:
+                waiting = False
+
+def start_game():
+    # Game variables
+    game_speed = 5
+    score = 0
+    level = 1
+    shield_active = False
+    shield_timer = 0
+    boost_active = False
+    boost_timer = 0
+    
+    # Create sprites
+    all_sprites = pygame.sprite.Group()
+    obstacles = pygame.sprite.Group()
+    powerups = pygame.sprite.Group()
+    road_markers = pygame.sprite.Group()
+    
+    player = Player()
+    all_sprites.add(player)
+    
+    # Create road markers
+    for i in range(10):
+        marker_left = RoadMarker(WIDTH/3, i * 70, game_speed)
+        marker_right = RoadMarker(WIDTH*2/3, i * 70, game_speed)
+        all_sprites.add(marker_left, marker_right)
+        road_markers.add(marker_left, marker_right)
+    
+    # Create initial obstacles
+    for i in range(6):
+        obstacle = Obstacle(game_speed)
+        all_sprites.add(obstacle)
+        obstacles.add(obstacle)
+    
+    # Create power-ups
+    for i in range(2):
+        powerup = PowerUp(game_speed)
+        all_sprites.add(powerup)
+        powerups.add(powerup)
+    
+    # Game loop
+    running = True
+    game_over = False
+    last_speed_increase = time.time()
+    
+    while running:
+        clock.tick(FPS)
+        
+        # Process events
+        for event in pygame.event.get():
+            if event.type == pygame.QUIT:
+                running = False
+            elif event.type == pygame.KEYDOWN and event.key == pygame.K_SPACE:
+                player.brake()
+                
+        # Get keyboard input
+        keys = pygame.key.get_pressed()
+        if keys[pygame.K_LEFT]:
+            player.accelerate("left")
+        if keys[pygame.K_RIGHT]:
+            player.accelerate("right")
+        if keys[pygame.K_UP]:
+            player.accelerate("up")
+        if keys[pygame.K_DOWN]:
+            player.accelerate("down")
+            
+        # Update
+        all_sprites.update()
+        
+        # Check for collisions with obstacles
+        hits = pygame.sprite.spritecollide(player, obstacles, True)
+        for hit in hits:
+            # Avoid damage if shield is active
+            if not shield_active:
+                player.health -= hit.damage
+                
+            score += hit.score_value
+            # Create a new obstacle to replace the one that was hit
+            new_obstacle = Obstacle(game_speed)
+            all_sprites.add(new_obstacle)
+            obstacles.add(new_obstacle)
+            
+            if player.health <= 0:
+                game_over = True
+        
+        # Check for power-up collisions
+        powerup_hits = pygame.sprite.spritecollide(player, powerups, True)
+        for hit in powerup_hits:
+            if hit.type == "health":
+                player.health = min(100, player.health + 25)
+            elif hit.type == "speed":
+                boost_active = True
+                boost_timer = time.time()
+                player.max_speed = 15
+            elif hit.type == "shield":
+                shield_active = True
+                shield_timer = time.time()
+                
+            # Create a new power-up
+            new_powerup = PowerUp(game_speed)
+            all_sprites.add(new_powerup)
+            powerups.add(new_powerup)
+            
+        # Handle power-up timers
+        current_time = time.time()
+        if shield_active and current_time - shield_timer > 5:
+            shield_active = False
+            
+        if boost_active and current_time - boost_timer > 3:
+            boost_active = False
+            player.max_speed = 10
+            
+        # Increase game speed periodically
+        if current_time - last_speed_increase > 10:
+            game_speed += 0.5
+            level += 1
+            last_speed_increase = current_time
+            
+            # Update all road markers and obstacles with new speed
+            for marker in road_markers:
+                marker.speed = game_speed
+            for obstacle in obstacles:
+                obstacle.speed = game_speed
+            for powerup in powerups:
+                powerup.speed = game_speed
+        
+        # Draw
+        screen.fill(BLACK)
+        
+        # Draw the road
+        pygame.draw.rect(screen, GRAY, (0, 0, WIDTH, HEIGHT))
+        pygame.draw.rect(screen, BLACK, (WIDTH/3 - 5, 0, 10, HEIGHT))
+        pygame.draw.rect(screen, BLACK, (WIDTH*2/3 - 5, 0, 10, HEIGHT))
+        
+        # Draw all sprites
+        all_sprites.draw(screen)
+        
+        # Draw HUD
+        font = pygame.font.Font(None, 36)
+        score_text = font.render(f"Score: {score}", True, WHITE)
+        screen.blit(score_text, (10, 10))
+        
+        health_text = font.render(f"Health: {player.health}", True, WHITE)
+        screen.blit(health_text, (10, 50))
+        
+        level_text = font.render(f"Level: {level}", True, WHITE)
+        screen.blit(level_text, (WIDTH - 150, 10))
+        
+        speed_text = font.render(f"Speed: {int(game_speed * 10)} mph", True, WHITE)
+        screen.blit(speed_text, (WIDTH - 200, 50))
+        
+        # Draw active power-ups
+        if shield_active:
+            shield_text = font.render("SHIELD", True, BLUE)
+            screen.blit(shield_text, (WIDTH/2 - 50, 10))
+            # Draw shield around player
+            pygame.draw.circle(screen, (0, 0, 255, 128), player.rect.center, max(player.rect.width, player.rect.height) / 1.5, 2)
+            
+        if boost_active:
+            boost_text = font.render("BOOST", True, YELLOW)
+            screen.blit(boost_text, (WIDTH/2 - 50, 50))
+        
+        pygame.display.flip()
+        
+        if game_over:
+            show_game_over(score)
+            return
+            
+    pygame.quit()
+
+# Main game loop
+while True:
+    show_start_screen()
+    start_game()
