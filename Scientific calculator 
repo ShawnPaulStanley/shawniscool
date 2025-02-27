@@ -1,0 +1,304 @@
+import tkinter as tk
+import math
+import random
+
+class ScientificCalculator:
+    def __init__(self, root):
+        self.root = root
+        self.root.title("The Overeducated Calculator")
+        self.root.geometry("500x650")
+        self.root.resizable(False, False)
+        self.root.configure(bg="#2E2E2E")
+        
+        # Funny quotes to display randomly
+        self.quotes = [
+            "I'm calculating... unlike your ex's emotional intelligence",
+            "Math: the only place where people buy 60 watermelons and no one wonders why",
+            "This calculation is harder than explaining to my mom what I do for a living",
+            "If you think this is complex, try understanding my dating history",
+            "I just solved that faster than you solved your commitment issues",
+            "I'm good with numbers, just not the ones in my bank account",
+            "Warning: I may calculate faster than you can regret asking that question",
+            "Dividing by zero is like texting your ex at 2 AM - just don't do it",
+            "This answer is more accurate than your weather app",
+            "I calculate with precision, unlike your estimated arrival time"
+        ]
+        
+        # Variables
+        self.current_expression = ""
+        self.total_expression = ""
+        self.display_var = tk.StringVar()
+        self.message_var = tk.StringVar()
+        self.message_var.set("Ready to calculate... or overthink?")
+        
+        # Create the UI
+        self._create_display()
+        self._create_message_display()
+        self._create_buttons_frame()
+        self._create_special_buttons()
+        self._create_digit_buttons()
+        self._create_operator_buttons()
+        self._create_scientific_buttons()
+        
+        # Key bindings
+        self._add_key_bindings()
+
+    def _create_display(self):
+        display_frame = tk.Frame(self.root, bg="#2E2E2E")
+        display_frame.pack(pady=10)
+        
+        self.display = tk.Entry(
+            display_frame, 
+            textvariable=self.display_var, 
+            font=("Comic Sans MS", 24), 
+            bg="#3D3D3D", 
+            fg="white", 
+            bd=0, 
+            width=20,
+            justify=tk.RIGHT
+        )
+        self.display.pack(pady=5, padx=10)
+        self.display.focus_set()
+        
+    def _create_message_display(self):
+        message_frame = tk.Frame(self.root, bg="#2E2E2E")
+        message_frame.pack(pady=5)
+        
+        self.message_label = tk.Label(
+            message_frame, 
+            textvariable=self.message_var, 
+            font=("Comic Sans MS", 12, "italic"), 
+            bg="#2E2E2E", 
+            fg="#00FFFF", 
+            wraplength=400
+        )
+        self.message_label.pack(pady=5)
+        
+    def _create_buttons_frame(self):
+        self.buttons_frame = tk.Frame(self.root, bg="#2E2E2E")
+        self.buttons_frame.pack(pady=10)
+        
+    def _create_special_buttons(self):
+        special_frame = tk.Frame(self.buttons_frame, bg="#2E2E2E")
+        special_frame.pack(fill=tk.X, pady=5)
+        
+        # Clear Button
+        self.create_button(special_frame, "C", "#FF5555", self.clear, 0, 0, colspan=2)
+        
+        # Backspace Button
+        self.create_button(special_frame, "⌫", "#FF9999", self.backspace, 0, 2, colspan=2)
+        
+        # Tell Me a Joke Button
+        self.create_button(special_frame, "Random Fact", "#AAFFAA", self.tell_joke, 0, 4, colspan=2)
+        
+    def _create_digit_buttons(self):
+        digits_frame = tk.Frame(self.buttons_frame, bg="#2E2E2E")
+        digits_frame.pack(pady=5)
+        
+        digits = [
+            ["7", "8", "9"],
+            ["4", "5", "6"],
+            ["1", "2", "3"],
+            ["0", ".", "="]
+        ]
+        
+        for i, row in enumerate(digits):
+            for j, digit in enumerate(row):
+                if digit == "=":
+                    self.create_button(digits_frame, digit, "#55FF55", self.evaluate, i, j)
+                else:
+                    self.create_button(digits_frame, digit, "#5599FF" if digit == "." else "#777777", 
+                                  lambda x=digit: self.add_to_expression(x), i, j)
+                
+    def _create_operator_buttons(self):
+        operators_frame = tk.Frame(self.buttons_frame, bg="#2E2E2E")
+        operators_frame.pack(side=tk.LEFT, padx=10, pady=5)
+        
+        operators = ["+", "-", "*", "/", "(", ")", "^", "%"]
+        
+        for i, operator in enumerate(operators):
+            row, col = divmod(i, 2)
+            self.create_button(operators_frame, operator, "#FF9933", 
+                          lambda x=operator: self.add_to_expression(x if x != "^" else "**"), row, col)
+                
+    def _create_scientific_buttons(self):
+        scientific_frame = tk.Frame(self.buttons_frame, bg="#2E2E2E")
+        scientific_frame.pack(side=tk.RIGHT, padx=10, pady=5)
+        
+        scientific_functions = [
+            ("sin", lambda: self.add_scientific_function("sin")),
+            ("cos", lambda: self.add_scientific_function("cos")),
+            ("tan", lambda: self.add_scientific_function("tan")),
+            ("log", lambda: self.add_scientific_function("log")),
+            ("ln", lambda: self.add_scientific_function("ln")),
+            ("√", lambda: self.add_scientific_function("sqrt")),
+            ("π", lambda: self.add_to_expression(str(math.pi))),
+            ("e", lambda: self.add_to_expression(str(math.e))),
+        ]
+        
+        for i, (text, command) in enumerate(scientific_functions):
+            row, col = divmod(i, 2)
+            self.create_button(scientific_frame, text, "#AA66FF", command, row, col)
+                
+    def create_button(self, parent, text, color, command, row, column, rowspan=1, colspan=1):
+        button = tk.Button(
+            parent,
+            text=text,
+            font=("Comic Sans MS", 14, "bold"),
+            bg=color,
+            fg="white" if text != "0" else "black",
+            activebackground="#444444",
+            activeforeground="white",
+            relief=tk.RAISED,
+            bd=3,
+            width=5,
+            height=2,
+            command=command
+        )
+        button.grid(row=row, column=column, rowspan=rowspan, columnspan=colspan, padx=3, pady=3, sticky="nsew")
+        return button
+    
+    def add_to_expression(self, value):
+        self.current_expression += value
+        self.update_display()
+        
+    def add_scientific_function(self, func):
+        function_map = {
+            "sin": "math.sin(",
+            "cos": "math.cos(",
+            "tan": "math.tan(",
+            "log": "math.log10(",
+            "ln": "math.log(",
+            "sqrt": "math.sqrt("
+        }
+        self.current_expression += function_map[func]
+        self.update_display()
+        
+    def clear(self):
+        self.current_expression = ""
+        self.update_display()
+        self.message_var.set("Memory wiped cleaner than my browser history")
+        
+    def backspace(self):
+        self.current_expression = self.current_expression[:-1]
+        self.update_display()
+        
+    def update_display(self):
+        self.display_var.set(self.current_expression)
+        
+    def evaluate(self):
+        try:
+            # Replace π and e with their values if they appear as isolated symbols
+            expression = self.current_expression
+            
+            # Safety check - don't evaluate empty expressions
+            if not expression.strip():
+                self.message_var.set("Give me something to work with! I'm bored.")
+                return
+                
+            # Evaluate the expression
+            result = eval(expression)
+            
+            # Format the result
+            if isinstance(result, int) or (isinstance(result, float) and result.is_integer()):
+                result = int(result)
+            elif isinstance(result, float):
+                # Limit to 8 decimal places
+                result = round(result, 8)
+                # Remove trailing zeros
+                result = '{:.8f}'.format(result).rstrip('0').rstrip('.') if '.' in '{:.8f}'.format(result) else '{:.0f}'.format(result)
+                
+            # Update display and message
+            self.current_expression = str(result)
+            self.update_display()
+            self.show_random_quote()
+            
+        except SyntaxError:
+            self.message_var.set("Syntax Error! Even I can't understand that gibberish.")
+            self.highlight_error()
+        except ZeroDivisionError:
+            self.message_var.set("Dividing by zero? Are you trying to break the universe?")
+            self.highlight_error()
+        except Exception as e:
+            self.message_var.set(f"Error: {str(e)}. You broke me!")
+            self.highlight_error()
+            
+    def highlight_error(self):
+        original_bg = self.display["bg"]
+        self.display.config(bg="#FF5555")
+        self.root.after(200, lambda: self.display.config(bg=original_bg))
+        
+    def show_random_quote(self):
+        self.message_var.set(random.choice(self.quotes))
+        
+    def tell_joke(self):
+        math_facts = [
+            "The symbol for pi (π) was first used in 1706 by William Jones. The calculator finds this historically significant.",
+            "A googolplex is so large that there's not enough space in the universe to write it out in full.",
+            "The calculator thinks it's funny that 'BOOBLESS' is 55378008 upside down on a calculator.",
+            "The number 73 is the best number according to Sheldon Cooper from The Big Bang Theory.",
+            "The square root of 2 is irrational, which means it can't be expressed as a fraction. Just like your ex.",
+            "Zero was invented independently by ancient civilizations: Babylonians, Mayans, and Indians. Show-offs.",
+            "The calculator is very proud to tell you that 8,549,176,320 is a 10-digit number that includes each digit 0-9 exactly once.",
+            "The sum of all the numbers on a roulette wheel is 666, also known as the 'Number of the Beast.'",
+            "If you shuffle a deck of cards properly, it's likely that the exact order of cards has never existed before. Like your dating choices.",
+            "The calculator knows that 142857 is a cyclic number. When multiplied by 2, 3, 4, 5, or 6, it produces the same digits in the same cyclic order."
+        ]
+        self.message_var.set(random.choice(math_facts))
+        
+    def _add_key_bindings(self):
+        self.root.bind("<Return>", lambda event: self.evaluate())
+        self.root.bind("<BackSpace>", lambda event: self.backspace())
+        self.root.bind("<Escape>", lambda event: self.clear())
+        
+        # Bind digits and operators
+        for key in "0123456789.+-*/()%":
+            self.root.bind(key, lambda event, digit=key: self.add_to_expression(digit))
+        
+        # Bind special keys
+        self.root.bind("^", lambda event: self.add_to_expression("**"))
+        self.root.bind("p", lambda event: self.add_to_expression(str(math.pi)))
+        self.root.bind("e", lambda event: self.add_to_expression(str(math.e)))
+        
+
+def add_calculator_personality(calc):
+    """Add some personality features to the calculator"""
+    
+    original_evaluate = calc.evaluate
+    
+    def new_evaluate():
+        # Sometimes be dramatic about calculations
+        if random.random() < 0.1:  # 10% chance
+            calc.message_var.set("Calculating with the power of a thousand suns...")
+            calc.root.update()
+            calc.root.after(500)  # Pause for dramatic effect
+        
+        # Call the original method
+        original_evaluate()
+    
+    calc.evaluate = new_evaluate
+    
+    # Add a count of calculations performed
+    calc.calculations_count = 0
+    
+    original_add = calc.add_to_expression
+    
+    def count_calculations(value):
+        original_add(value)
+        if value == "=":
+            calc.calculations_count += 1
+            if calc.calculations_count % 5 == 0:
+                calc.message_var.set(f"You've done {calc.calculations_count} calculations. Need a life much?")
+    
+    calc.add_to_expression = count_calculations
+
+def main():
+    root = tk.Tk()
+    calculator = ScientificCalculator(root)
+    add_calculator_personality(calculator)
+    
+    # Run the app
+    root.mainloop()
+
+if __name__ == "__main__":
+    main()
