@@ -1,0 +1,138 @@
+import random
+import os
+import time
+import msvcrt if os.name == 'nt' else ''
+import threading
+import sys
+
+class TerminalRacingGame:
+    def __init__(self):
+        self.track_width = 30
+        self.track_length = 20
+        self.player_position = self.track_width // 2
+        self.player_progress = 0
+        self.obstacles = []
+        self.game_over = False
+        self.score = 0
+        self.level = 1
+        self.speed = 0.2  # Seconds between frames
+        self.obstacle_chance = 0.2
+        
+    def clear_screen(self):
+        os.system('cls' if os.name == 'nt' else 'clear')
+        
+    def get_input(self):
+        def input_thread():
+            while not self.game_over:
+                if os.name == 'nt':
+                    if msvcrt.kbhit():
+                        key = msvcrt.getch().decode('utf-8').lower()
+                        self.process_input(key)
+                else:
+                    # For Unix systems using a non-blocking approach
+                    import sys, tty, termios
+                    old_settings = termios.tcgetattr(sys.stdin)
+                    try:
+                        tty.setcbreak(sys.stdin.fileno())
+                        if sys.stdin.read(1):
+                            key = sys.stdin.read(1)
+                            self.process_input(key)
+                    finally:
+                        termios.tcsetattr(sys.stdin, termios.TCSADRAIN, old_settings)
+                time.sleep(0.05)
+
+        threading.Thread(target=input_thread, daemon=True).start()
+                
+    def process_input(self, key):
+        if key == 'a' and self.player_position > 0:
+            self.player_position -= 1
+        elif key == 'd' and self.player_position < self.track_width - 1:
+            self.player_position += 1
+        elif key == 'q':
+            self.game_over = True
+            
+    def generate_obstacles(self):
+        # Move existing obstacles down the track
+        new_obstacles = []
+        for y, x in self.obstacles:
+            new_y = y + 1
+            if new_y < self.track_length:
+                new_obstacles.append((new_y, x))
+            
+        self.obstacles = new_obstacles
+        
+        # Generate new obstacles at the top
+        if random.random() < self.obstacle_chance:
+            self.obstacles.append((0, random.randint(0, self.track_width - 1)))
+            
+    def check_collision(self):
+        player_position = (self.track_length - 1, self.player_position)
+        return player_position in self.obstacles
+    
+    def update_game(self):
+        self.generate_obstacles()
+        
+        if self.check_collision():
+            self.game_over = True
+            return
+            
+        self.player_progress += 1
+        self.score += 1
+        
+        # Increase difficulty as score increases
+        if self.score % 50 == 0:
+            self.level += 1
+            self.speed = max(0.05, self.speed * 0.9)
+            self.obstacle_chance = min(0.5, self.obstacle_chance + 0.05)
+        
+    def render(self):
+        self.clear_screen()
+        
+        # Print game info
+        print(f"Score: {self.score} | Level: {self.level}")
+        print(f"Controls: A - Left, D - Right, Q - Quit")
+        print("-" * (self.track_width + 2))
+        
+        # Render track
+        track = [[' ' for _ in range(self.track_width)] for _ in range(self.track_length)]
+        
+        # Place obstacles
+        for y, x in self.obstacles:
+            track[y][x] = 'X'
+            
+        # Place player
+        track[self.track_length - 1][self.player_position] = 'C'
+        
+        # Print track
+        for row in track:
+            print("|" + "".join(row) + "|")
+            
+        print("-" * (self.track_width + 2))
+        
+    def game_loop(self):
+        self.get_input()
+        
+        try:
+            while not self.game_over:
+                self.update_game()
+                self.render()
+                time.sleep(self.speed)
+                
+            print("\nGame Over!")
+            print(f"Final Score: {self.score}")
+            
+        except KeyboardInterrupt:
+            print("\nGame interrupted.")
+        
+def main():
+    print("Welcome to Terminal Racing!")
+    print("Controls: A - Left, D - Right, Q - Quit")
+    print("Avoid the obstacles (X) with your car (C)")
+    print("Press Enter to start...")
+    input()
+    
+    game = TerminalRacingGame()
+    game.game_loop()
+
+if __name__ == "__main__":
+    main()
