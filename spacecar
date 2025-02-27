@@ -1,0 +1,687 @@
+import pygame
+import random
+import math
+import sys
+from pygame import gfxdraw
+
+# Initialize pygame
+pygame.init()
+pygame.font.init()
+
+# Screen dimensions
+WIDTH = 1000
+HEIGHT = 700
+FPS = 60
+
+# Colors
+WHITE = (255, 255, 255)
+BLACK = (0, 0, 0)
+RED = (255, 0, 0)
+GREEN = (0, 255, 0)
+BLUE = (0, 0, 255)
+YELLOW = (255, 255, 0)
+PURPLE = (128, 0, 128)
+CYAN = (0, 255, 255)
+DARK_BLUE = (20, 20, 60)
+ORANGE = (255, 165, 0)
+
+# Create the screen
+screen = pygame.display.set_mode((WIDTH, HEIGHT))
+pygame.display.set_caption("Cosmic Velocity: Space Racing")
+clock = pygame.time.Clock()
+
+# Load fonts
+title_font = pygame.font.SysFont('Arial', 60, bold=True)
+menu_font = pygame.font.SysFont('Arial', 36)
+game_font = pygame.font.SysFont('Arial', 24)
+small_font = pygame.font.SysFont('Arial', 18)
+
+class StarField:
+    def __init__(self, num_stars=100):
+        self.stars = []
+        self.num_stars = num_stars
+        self.initialize_stars()
+        
+    def initialize_stars(self):
+        for _ in range(self.num_stars):
+            x = random.randint(0, WIDTH)
+            y = random.randint(0, HEIGHT)
+            size = random.randint(1, 3)
+            speed = random.uniform(0.2, 2.0)
+            brightness = random.randint(100, 255)
+            color = (brightness, brightness, brightness)
+            self.stars.append([x, y, size, speed, color])
+    
+    def update(self, player_speed=0, player_direction=0):
+        for star in self.stars:
+            # Base movement (slightly downward to create forward motion feel)
+            star[1] += star[3]
+            
+            # Additional movement based on player's speed and direction
+            if player_speed > 0:
+                dx = -math.sin(player_direction) * player_speed * 0.2 * star[3]
+                dy = math.cos(player_direction) * player_speed * 0.2 * star[3]
+                star[0] += dx
+                star[1] += dy
+            
+            # Reset stars that go off screen
+            if star[1] > HEIGHT:
+                star[1] = 0
+                star[0] = random.randint(0, WIDTH)
+            elif star[1] < 0:
+                star[1] = HEIGHT
+                star[0] = random.randint(0, WIDTH)
+            
+            if star[0] > WIDTH:
+                star[0] = 0
+                star[1] = random.randint(0, HEIGHT)
+            elif star[0] < 0:
+                star[0] = WIDTH
+                star[1] = random.randint(0, HEIGHT)
+                
+    def draw(self, surface):
+        for star in self.stars:
+            pygame.draw.circle(surface, star[4], (int(star[0]), int(star[1])), star[2])
+
+class SpaceShip(pygame.sprite.Sprite):
+    def __init__(self, x, y, ship_type="player"):
+        pygame.sprite.Sprite.__init__(self)
+        self.original_image = self.create_ship_image(ship_type)
+        self.image = self.original_image
+        self.rect = self.image.get_rect()
+        self.rect.centerx = x
+        self.rect.centery = y
+        self.direction = 0  # in radians, 0 is pointing up
+        self.speed = 0
+        self.max_speed = 8 if ship_type == "player" else 6
+        self.acceleration = 0.2
+        self.rotation_speed = 0.1
+        self.boost_available = True
+        self.boost_cooldown = 0
+        self.boost_active = False
+        self.boost_duration = 0
+        self.health = 100
+        self.shield = 0
+        self.ship_type = ship_type
+        self.checkpoint_progress = 0
+        self.lap_count = 0
+        self.waypoint_index = 0
+        
+        # AI specific
+        self.is_ai = ship_type != "player"
+        self.ai_target_direction = 0
+        self.ai_thinking_time = 0
+        self.ai_error = random.uniform(-0.2, 0.2)  # AI steering error
+        
+    def create_ship_image(self, ship_type):
+        colors = {
+            "player": CYAN,
+            "ai_1": RED,
+            "ai_2": GREEN,
+            "ai_3": YELLOW,
+            "ai_4": PURPLE
+        }
+        
+        color = colors.get(ship_type, BLUE)
+        
+        # Create a surface for the ship with transparency
+        ship_image = pygame.Surface((40, 40), pygame.SRCALPHA)
+        
+        if ship_type == "player":
+            # Draw a triangular ship
+            pygame.draw.polygon(ship_image, color, [(20, 0), (0, 40), (40, 40)])
+            # Add some details
+            pygame.draw.line(ship_image, WHITE, (20, 10), (20, 30), 2)
+            pygame.draw.polygon(ship_image, ORANGE, [(15, 40), (25, 40), (20, 35)])
+        else:
+            # Different ship design for AI
+            pygame.draw.polygon(ship_image, color, [(20, 0), (5, 30), (35, 30)])
+            pygame.draw.rect(ship_image, color, (10, 30, 20, 10))
+            # Add some details
+            pygame.draw.line(ship_image, WHITE, (20, 5), (20, 25), 2)
+            pygame.draw.rect(ship_image, ORANGE, (15, 35, 10, 5))
+        
+        return ship_image
+    
+    def update(self, track_waypoints=None):
+        # Handle boost cooldown
+        if self.boost_cooldown > 0:
+            self.boost_cooldown -= 1
+            if self.boost_cooldown <= 0:
+                self.boost_available = True
+        
+        # Handle active boost
+        if self.boost_active:
+            self.boost_duration -= 1
+            if self.boost_duration <= 0:
+                self.boost_active = False
+                self.max_speed = 8 if self.ship_type == "player" else 6
+        
+        # AI control
+        if self.is_ai and track_waypoints:
+            self.ai_control(track_waypoints)
+        
+        # Update position based on speed and direction
+        dx = -math.sin(self.direction) * self.speed
+        dy = -math.cos(self.direction) * self.speed
+        self.rect.x += dx
+        self.rect.y += dy
+        
+        # Update the ship's rotation
+        self.image = pygame.transform.rotate(self.original_image, math.degrees(self.direction))
+        self.rect = self.image.get_rect(center=self.rect.center)
+        
+        # Keep ship on screen
+        if self.rect.left < 0:
+            self.rect.left = 0
+            self.speed *= 0.5  # Slow down on collision
+        if self.rect.right > WIDTH:
+            self.rect.right = WIDTH
+            self.speed *= 0.5
+        if self.rect.top < 0:
+            self.rect.top = 0
+            self.speed *= 0.5
+        if self.rect.bottom > HEIGHT:
+            self.rect.bottom = HEIGHT
+            self.speed *= 0.5
+            
+        # Apply slight drag
+        if self.speed > 0:
+            self.speed -= 0.05
+            if self.speed < 0:
+                self.speed = 0
+        elif self.speed < 0:
+            self.speed += 0.05
+            if self.speed > 0:
+                self.speed = 0
+    
+    def ai_control(self, waypoints):
+        # Decrease AI thinking time
+        if self.ai_thinking_time > 0:
+            self.ai_thinking_time -= 1
+            return
+        
+        # Get current waypoint
+        current_waypoint = waypoints[self.waypoint_index % len(waypoints)]
+        
+        # Calculate angle to waypoint
+        dx = current_waypoint[0] - self.rect.centerx
+        dy = current_waypoint[1] - self.rect.centery
+        target_angle = math.atan2(-dx, -dy)
+        
+        # Adjust for random error to make AI less perfect
+        target_angle += self.ai_error
+        
+        # Determine shortest rotation direction
+        angle_diff = target_angle - self.direction
+        # Normalize the angle
+        while angle_diff > math.pi:
+            angle_diff -= 2 * math.pi
+        while angle_diff < -math.pi:
+            angle_diff += 2 * math.pi
+            
+        # Rotate towards target
+        if angle_diff > 0.1:
+            self.rotate(1)
+        elif angle_diff < -0.1:
+            self.rotate(-1)
+        
+        # Accelerate if pointing roughly in the right direction
+        if abs(angle_diff) < 0.5:
+            self.accelerate()
+        
+        # Check if waypoint is reached
+        dist_to_waypoint = math.sqrt(dx**2 + dy**2)
+        if dist_to_waypoint < 50:  # Waypoint radius
+            self.waypoint_index += 1
+            
+            # Add random AI thinking delay
+            self.ai_thinking_time = random.randint(0, 10)
+            
+            # Random chance to use boost
+            if random.random() < 0.2 and self.boost_available:
+                self.activate_boost()
+    
+    def rotate(self, direction):
+        self.direction += direction * self.rotation_speed
+        # Normalize direction
+        while self.direction >= 2 * math.pi:
+            self.direction -= 2 * math.pi
+        while self.direction < 0:
+            self.direction += 2 * math.pi
+    
+    def accelerate(self):
+        target_speed = self.max_speed if self.boost_active else self.max_speed
+        if self.speed < target_speed:
+            self.speed += self.acceleration
+            if self.speed > target_speed:
+                self.speed = target_speed
+    
+    def decelerate(self):
+        if self.speed > -self.max_speed / 2:  # Limit reverse speed
+            self.speed -= self.acceleration / 2
+    
+    def activate_boost(self):
+        if self.boost_available:
+            self.boost_active = True
+            self.boost_available = False
+            self.boost_duration = 60  # 1 second at 60 FPS
+            self.boost_cooldown = 300  # 5 seconds at 60 FPS
+            self.max_speed = 12 if self.ship_type == "player" else 9  # Boost speed
+    
+    def check_checkpoint(self, checkpoints):
+        # Detect if ship is at the next checkpoint
+        next_checkpoint = checkpoints[self.checkpoint_progress % len(checkpoints)]
+        checkpoint_rect = pygame.Rect(next_checkpoint[0] - 50, next_checkpoint[1] - 50, 100, 100)
+        
+        if self.rect.colliderect(checkpoint_rect):
+            self.checkpoint_progress += 1
+            
+            # Check if completed a lap
+            if self.checkpoint_progress > 0 and self.checkpoint_progress % len(checkpoints) == 0:
+                self.lap_count += 1
+                return True  # Completed a lap
+        
+        return False  # No lap completion
+    
+    def draw_shield(self, surface):
+        if self.shield > 0:
+            pygame.draw.circle(surface, (0, 100, 255, 100), self.rect.center, self.rect.width // 2 + 5, 2)
+
+class PowerUp(pygame.sprite.Sprite):
+    def __init__(self, x, y, power_type):
+        pygame.sprite.Sprite.__init__(self)
+        self.power_type = power_type
+        self.image = self.create_powerup_image()
+        self.rect = self.image.get_rect()
+        self.rect.centerx = x
+        self.rect.centery = y
+        self.angle = 0
+        self.bob_offset = 0
+        self.bob_speed = 0.05
+        self.bob_range = 10
+        
+    def create_powerup_image(self):
+        image = pygame.Surface((30, 30), pygame.SRCALPHA)
+        
+        if self.power_type == "boost":
+            color = ORANGE
+            pygame.draw.circle(image, color, (15, 15), 15)
+            pygame.draw.polygon(image, WHITE, [(15, 5), (25, 25), (15, 20), (5, 25)])
+        elif self.power_type == "shield":
+            color = BLUE
+            pygame.draw.circle(image, color, (15, 15), 15)
+            pygame.draw.circle(image, WHITE, (15, 15), 10, 2)
+        elif self.power_type == "repair":
+            color = GREEN
+            pygame.draw.circle(image, color, (15, 15), 15)
+            pygame.draw.rect(image, WHITE, (10, 8, 10, 15))
+            pygame.draw.rect(image, WHITE, (5, 13, 20, 5))
+        
+        return image
+    
+    def update(self):
+        # Rotate the powerup
+        self.angle = (self.angle + 2) % 360
+        
+        # Bob up and down
+        self.bob_offset = math.sin(pygame.time.get_ticks() * self.bob_speed) * self.bob_range
+        self.rect.y = self.rect.y - self.bob_offset
+        
+        new_image = pygame.transform.rotate(self.image, self.angle)
+        old_center = self.rect.center
+        self.image = new_image
+        self.rect = self.image.get_rect()
+        self.rect.center = old_center
+
+class Obstacle(pygame.sprite.Sprite):
+    def __init__(self, x, y, obstacle_type):
+        pygame.sprite.Sprite.__init__(self)
+        self.obstacle_type = obstacle_type
+        self.image = self.create_obstacle_image()
+        self.rect = self.image.get_rect()
+        self.rect.centerx = x
+        self.rect.centery = y
+        self.rotation_speed = random.uniform(-1, 1)
+        self.angle = random.randint(0, 360)
+        
+    def create_obstacle_image(self):
+        if self.obstacle_type == "asteroid":
+            size = random.randint(30, 50)
+            image = pygame.Surface((size, size), pygame.SRCALPHA)
+            
+            # Draw irregular asteroid shape
+            points = []
+            for i in range(8):
+                angle = 2 * math.pi * i / 8
+                distance = size // 2 - random.randint(0, size // 5)
+                point_x = size // 2 + int(math.cos(angle) * distance)
+                point_y = size // 2 + int(math.sin(angle) * distance)
+                points.append((point_x, point_y))
+            
+            pygame.draw.polygon(image, (150, 150, 150), points)
+            # Add some crater details
+            for _ in range(3):
+                crater_x = random.randint(5, size - 5)
+                crater_y = random.randint(5, size - 5)
+                crater_size = random.randint(2, 5)
+                pygame.draw.circle(image, (100, 100, 100), (crater_x, crater_y), crater_size)
+                
+        elif self.obstacle_type == "space_junk":
+            image = pygame.Surface((40, 40), pygame.SRCALPHA)
+            
+            # Draw space junk (looks like a satellite piece)
+            pygame.draw.rect(image, (200, 200, 200), (10, 15, 20, 10))
+            pygame.draw.rect(image, (150, 150, 150), (5, 10, 30, 5))
+            pygame.draw.rect(image, (100, 100, 100), (15, 0, 10, 15))
+            pygame.draw.line(image, (220, 220, 220), (0, 20), (40, 20), 2)
+            
+        elif self.obstacle_type == "gravity_well":
+            image = pygame.Surface((60, 60), pygame.SRCALPHA)
+            
+            # Draw a swirling gravity well
+            for radius in range(30, 0, -5):
+                alpha = 150 - radius * 3
+                if alpha < 0:
+                    alpha = 0
+                color = (0, 0, 100, alpha)
+                pygame.draw.circle(image, color, (30, 30), radius)
+                
+        return image
+    
+    def update(self):
+        # Rotate obstacles like asteroids and space junk
+        if self.obstacle_type != "gravity_well":
+            self.angle = (self.angle + self.rotation_speed) % 360
+            new_image = pygame.transform.rotate(self.image, self.angle)
+            old_center = self.rect.center
+            self.image = new_image
+            self.rect = self.image.get_rect()
+            self.rect.center = old_center
+
+class Track:
+    def __init__(self):
+        self.checkpoints = []
+        self.waypoints = []
+        self.track_width = 150
+        self.generate_track()
+        
+    def generate_track(self):
+        # Create a circular/oval track with checkpoints
+        center_x, center_y = WIDTH // 2, HEIGHT // 2
+        a, b = WIDTH // 2 - 100, HEIGHT // 2 - 100  # Semi-major/minor axes
+        
+        # Generate checkpoints along an ellipse
+        num_checkpoints = 8
+        for i in range(num_checkpoints):
+            angle = 2 * math.pi * i / num_checkpoints
+            x = center_x + int(a * math.cos(angle))
+            y = center_y + int(b * math.sin(angle))
+            self.checkpoints.append((x, y))
+        
+        # Generate more detailed waypoints for AI
+        num_waypoints = 24
+        for i in range(num_waypoints):
+            angle = 2 * math.pi * i / num_waypoints
+            x = center_x + int(a * math.cos(angle))
+            y = center_y + int(b * math.sin(angle))
+            self.waypoints.append((x, y))
+    
+    def draw(self, surface):
+        # Draw the track
+        for i in range(len(self.waypoints)):
+            start = self.waypoints[i]
+            end = self.waypoints[(i + 1) % len(self.waypoints)]
+            
+            # Draw track segment
+            pygame.draw.line(surface, (50, 50, 80), start, end, self.track_width)
+            
+        # Draw start/finish line
+        start_point = self.checkpoints[0]
+        direction = math.atan2(self.checkpoints[1][1] - start_point[1], 
+                              self.checkpoints[1][0] - start_point[0])
+        perpendicular = direction + math.pi/2
+        
+        start_x = start_point[0] + int(self.track_width//2 * math.cos(perpendicular))
+        start_y = start_point[1] + int(self.track_width//2 * math.sin(perpendicular))
+        end_x = start_point[0] - int(self.track_width//2 * math.cos(perpendicular))
+        end_y = start_point[1] - int(self.track_width//2 * math.sin(perpendicular))
+        
+        for i in range(0, self.track_width, 10):
+            offset = i % 20
+            if offset < 10:
+                pygame.draw.line(surface, WHITE, 
+                                (start_x + int(i/self.track_width * (end_x - start_x)), 
+                                 start_y + int(i/self.track_width * (end_y - start_y))),
+                                (start_x + int((i+5)/self.track_width * (end_x - start_x)), 
+                                 start_y + int((i+5)/self.track_width * (end_y - start_y))), 
+                                3)
+        
+        # Draw checkpoints (invisible during race, just for debug)
+        #for cp in self.checkpoints:
+        #    pygame.draw.circle(surface, (255, 255, 255, 50), cp, 10, 2)
+
+class Particle:
+    def __init__(self, x, y, color, velocity_x, velocity_y, lifetime=30, size=3):
+        self.x = x
+        self.y = y
+        self.color = color
+        self.velocity_x = velocity_x
+        self.velocity_y = velocity_y
+        self.lifetime = lifetime
+        self.age = 0
+        self.size = size
+        
+    def update(self):
+        self.x += self.velocity_x
+        self.y += self.velocity_y
+        self.age += 1
+        # Shrink particles as they age
+        self.size = max(0, self.size * (1 - self.age / self.lifetime))
+        
+    def draw(self, surface):
+        alpha = 255 * (1 - self.age / self.lifetime)
+        color_with_alpha = (*self.color, int(alpha))
+        if self.size >= 1:
+            pygame.gfxdraw.filled_circle(surface, int(self.x), int(self.y), int(self.size), color_with_alpha)
+
+class ParticleSystem:
+    def __init__(self):
+        self.particles = []
+        
+    def add_engine_particles(self, ship):
+        # Calculate position behind the ship
+        ship_direction = ship.direction
+        ship_speed = ship.speed
+        
+        # Ship's center
+        ship_x, ship_y = ship.rect.center
+        
+        # Calculate engine position (rear of the ship)
+        engine_offset = 20  # Distance from center to engine
+        engine_x = ship_x + math.sin(ship_direction) * engine_offset
+        engine_y = ship_y + math.cos(ship_direction) * engine_offset
+        
+        # Add more particles if boosting
+        num_particles = 1
+        if ship.boost_active:
+            num_particles = 3
+        
+        if ship_speed > 0.5:
+            for _ in range(num_particles):
+                # Random spread in the engine exhaust
+                spread = random.uniform(-0.2, 0.2)
+                velocity_x = math.sin(ship_direction + spread) * (ship_speed * 0.5)
+                velocity_y = math.cos(ship_direction + spread) * (ship_speed * 0.5)
+                
+                # Change color based on boost
+                if ship.boost_active:
+                    color = (255, 150, 0)  # Orange for boost
+                    size = random.uniform(3, 6)
+                    lifetime = random.randint(15, 25)
+                else:
+                    color = (0, 150, 255)  # Blue for normal
+                    size = random.uniform(2, 4)
+                    lifetime = random.randint(10, 20)
+                
+                self.particles.append(
+                    Particle(engine_x, engine_y, color, velocity_x, velocity_y, lifetime, size)
+                )
+                
+    def add_explosion(self, x, y, size=30, particle_count=20):
+        for _ in range(particle_count):
+            angle = random.uniform(0, 2 * math.pi)
+            speed = random.uniform(1, 3)
+            velocity_x = math.cos(angle) * speed
+            velocity_y = math.sin(angle) * speed
+            lifetime = random.randint(20, 40)
+            particle_size = random.uniform(2, 5)
+            color = random.choice([(255, 100, 0), (255, 200, 0), (255, 255, 0)])
+            
+            self.particles.append(
+                Particle(x, y, color, velocity_x, velocity_y, lifetime, particle_size)
+            )
+    
+    def update(self):
+        # Update existing particles
+        for particle in self.particles[:]:
+            particle.update()
+            # Remove dead particles
+            if particle.age >= particle.lifetime:
+                self.particles.remove(particle)
+    
+    def draw(self, surface):
+        for particle in self.particles:
+            particle.draw(surface)
+
+class GameState:
+    MENU = 0
+    RACING = 1
+    PAUSE = 2
+    GAME_OVER = 3
+
+def draw_menu(screen):
+    # Draw background
+    screen.fill(DARK_BLUE)
+    
+    # Draw stars
+    star_field = StarField(200)
+    star_field.draw(screen)
+    
+    # Draw title
+    title_surf = title_font.render("COSMIC VELOCITY", True, CYAN)
+    title_rect = title_surf.get_rect(center=(WIDTH//2, HEIGHT//4))
+    screen.blit(title_surf, title_rect)
+    
+    # Draw subtitle
+    subtitle_surf = menu_font.render("Space Racing Adventure", True, WHITE)
+    subtitle_rect = subtitle_surf.get_rect(center=(WIDTH//2, HEIGHT//4 + 70))
+    screen.blit(subtitle_surf, subtitle_rect)
+    
+    # Draw menu options
+    start_surf = menu_font.render("Press SPACE to Start", True, GREEN)
+    start_rect = start_surf.get_rect(center=(WIDTH//2, HEIGHT//2 + 50))
+    screen.blit(start_surf, start_rect)
+    
+    quit_surf = menu_font.render("Press Q to Quit", True, RED)
+    quit_rect = quit_surf.get_rect(center=(WIDTH//2, HEIGHT//2 + 100))
+    screen.blit(quit_surf, quit_rect)
+    
+    # Draw animated ship
+    ship_size = 60
+    ship_x = WIDTH//2
+    ship_y = HEIGHT//2 - 30
+    
+    time_ms = pygame.time.get_ticks()
+    offset = 10 * math.sin(time_ms / 500)  # Oscillate up and down
+    
+    ship_surf = pygame.Surface((ship_size, ship_size), pygame.SRCALPHA)
+    # Draw spaceship
+    pygame.draw.polygon(ship_surf, CYAN, 
+                       [(ship_size//2, 0), 
+                        (0, ship_size), 
+                        (ship_size//2, ship_size*3//4), 
+                        (ship_size, ship_size)])
+    # Engine glow
+    engine_size = 20 + 5 * math.sin(time_ms / 200)  # Pulsing engine
+    pygame.draw.polygon(ship_surf, ORANGE, 
+                       [(ship_size//2 - 10, ship_size), 
+                        (ship_size//2, ship_size + engine_size), 
+                        (ship_size//2 + 10, ship_size)])
+    
+    ship_rect = ship_surf.get_rect(center=(ship_x, ship_y + offset))
+    screen.blit(ship_surf, ship_rect)
+    
+    # Draw controls info
+    controls = [
+        "Controls:",
+        "Arrow Keys - Steer and Accelerate",
+        "SPACE - Activate Boost",
+        "P - Pause Game"
+    ]
+    
+    for i, line in enumerate(controls):
+        control_surf = small_font.render(line, True, WHITE)
+        screen.blit(control_surf, (20, HEIGHT - 120 + i * 25))
+    
+    # Draw version
+    version_surf = small_font.render("v1.0.0", True, WHITE)
+    screen.blit(version_surf, (WIDTH - 70, HEIGHT - 30))
+
+def draw_hud(screen, player, race_time, position, laps_completed, total_laps):
+    # Draw speed bar
+    speed_percentage = player.speed / player.max_speed
+    if player.boost_active:
+        bar_color = ORANGE
+    else:
+        bar_color = CYAN
+    
+    # Speed bar background
+    pygame.draw.rect(screen, (40, 40, 40), (20, 20, 200, 20))
+    # Speed bar fill
+    pygame.draw.rect(screen, bar_color, (20, 20, 200 * max(0, speed_percentage), 20))
+    # Speed text
+    speed_text = game_font.render(f"SPEED: {int(player.speed * 10)} km/h", True, WHITE)
+    screen.blit(speed_text, (25, 20))
+    
+    # Draw boost indicator
+    if player.boost_available:
+        boost_text = game_font.render("BOOST READY", True, GREEN)
+    else:
+        boost_text = game_font.render(f"BOOST: {player.boost_cooldown//60}s", True, ORANGE)
+    screen.blit(boost_text, (25, 45))
+    
+    # Draw health bar
+    health_percentage = max(0, player.health / 100)
+    # Health bar background
+    pygame.draw.rect(screen, (40, 40, 40), (20, 70, 200, 20))
+    # Health bar fill
+    health_color = GREEN if health_percentage > 0.5 else YELLOW if health_percentage > 0.25 else RED
+    pygame.draw.rect(screen, health_color, (20, 70, 200 * health_percentage, 20))
+    # Health text
+    health_text = game_font.render(f"HEALTH: {int(player.health)}%", True, WHITE)
+    screen.blit(health_text, (25, 70))
+    
+    # Draw race info (time, position, laps)
+    # Convert race time to minutes:seconds.milliseconds
+    minutes = int(race_time) // 60
+    seconds = int(race_time) % 60
+    milliseconds = int((race_time - int(race_time)) * 100)
+    
+    time_text = game_font.render(f"TIME: {minutes:02d}:{seconds:02d}.{milliseconds:02d}", True, WHITE)
+    screen.blit(time_text, (WIDTH - 200, 20))
+    
+    position_text = game_font.render(f"POSITION: {position}/5", True, WHITE)
+    screen.blit(position_text, (WIDTH - 200, 45))
+    
+    laps_text = game_font.render(f"LAP: {laps_completed}/{total_laps}", True, WHITE)
+    screen.blit(laps_text, (WIDTH - 200, 70))
+
+def draw_minimap(screen, track, player, opponents):
+    # Draw a small minimap in the corner
+    minimap_size = 150
+    minimap_margin = 20
+    minimap_surface = pygame.Surface((minimap_size, minimap_size), pygame.SRCALPHA)
+    
+    # Calculate scale factor
+    scale_factor_x = minimap
